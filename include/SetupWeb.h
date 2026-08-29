@@ -5,10 +5,15 @@
 
 #include "DeviceConfig.h"
 
+typedef bool (*DownloadPartituraHandler)(String &message);
+typedef bool (*WebConnectionStatusHandler)();
+
 class SetupWeb {
 public:
   explicit SetupWeb(DeviceConfig &config);
 
+  void onDownloadPartitura(DownloadPartituraHandler handler);
+  void onWebConnectionStatus(WebConnectionStatusHandler handler);
   void beginSetupPortal();
   void beginRuntimeWeb();
   void handleClient();
@@ -18,9 +23,13 @@ private:
   DeviceConfig &config;
   WebServer server;
   bool setupPortalActive;
+  DownloadPartituraHandler downloadPartituraHandler;
+  WebConnectionStatusHandler webConnectionStatusHandler;
 
   void registerRoutes();
   void handleHome();
+  void handlePartitura();
+  void handleDownloadPartitura();
   void handleWifiForm();
   void handleSaveWifi();
   void handleClearConfig();
@@ -29,4 +38,3 @@ private:
   String htmlEscape(const String &value) const;
   String setupSsid() const;
 };
-

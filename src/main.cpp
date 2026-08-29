@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <FastLED.h>
 #include <WiFi.h>
@@ -14,6 +15,8 @@
 #define MAX_LEDS_OUTPUT_2 1
 #define MAX_LEDS_OUTPUT_3 1
 #define BRIGHTNESS 96
+#define STATUS_LED_PIN 2
+#define DEFAULT_PARTITURA_KEY "default_installation"
 
 CRGB output1[MAX_LEDS_OUTPUT_1];
 CRGB output2[MAX_LEDS_OUTPUT_2];
@@ -24,6 +27,7 @@ uint16_t outputPixelCount[4] = {0, 0, 0, 0};
 unsigned long sceneStartedAtMs = 0;
 DeviceConfig deviceConfig;
 SetupWeb setupWeb(deviceConfig);
+bool webApiConnected = false;
 
 const char PARTITURA_JSON[] = R"json(
 {
@@ -98,10 +102,18 @@ void clearOutputs();
 void setPixel(int output, int index, CRGB color);
 void startNetworking();
 bool connectConfiguredWifi(uint32_t timeoutMs);
+bool downloadGeneratedPartitura(String &message);
+bool applyPartituraJson(const String &payload, String &message);
+bool isWebApiConnected();
+void setWebApiConnected(bool connected);
+String partituraDownloadUrl();
+String trimTrailingSlash(String value);
 
 void setup() {
   Serial.begin(115200);
   delay(300);
+  pinMode(STATUS_LED_PIN, OUTPUT);
+  setWebApiConnected(false);
 
   DeserializationError error = deserializeJson(partitura, PARTITURA_JSON);
   if (error) {
@@ -118,6 +130,8 @@ void setup() {
   sceneStartedAtMs = millis();
 
   Serial.println("ESP32 FastLED partitura runtime ready.");
+  setupWeb.onDownloadPartitura(downloadGeneratedPartitura);
+  setupWeb.onWebConnectionStatus(isWebApiConnected);
   startNetworking();
 }
 
@@ -142,6 +156,13 @@ void startNetworking() {
     Serial.print("WiFi connected: ");
     Serial.println(WiFi.localIP());
     setupWeb.beginRuntimeWeb();
+    String downloadMessage;
+    if (downloadGeneratedPartitura(downloadMessage)) {
+      Serial.println(downloadMessage);
+    } else {
+      Serial.print("Partitura download skipped/failed: ");
+      Serial.println(downloadMessage);
+    }
     return;
   }
 
@@ -162,7 +183,97 @@ bool connectConfiguredWifi(uint32_t timeoutMs) {
   return WiFi.status() == WL_CONNECTED;
 }
 
+bool downloadGeneratedPartitura(String &message) {
+  if (WiFi.status() != WL_CONNECTED) {
+    setWebApiConnected(false);
+    message = "WiFi is not connected.";
+    return false;
+  }
+
+  if (deviceConfig.apiBaseUrl.length() == 0) {
+    setWebApiConnected(false);
+    message = "API base URL is not configured.";
+    return false;
+  }
+
+  String url = partituraDownloadUrl();
+  Serial.print("Downloading partitura: ");
+  Serial.println(url);
+
+  HTTPClient http;
+  http.setTimeout(7000);
+  http.begin(url);
+  http.addHeader("X-Iluminate-Controller-Key", deviceConfig.controllerKey);
+  int status = http.GET();
+
+  if (status != HTTP_CODE_OK) {
+    setWebApiConnected(false);
+    message = "HTTP " + String(status) + " while downloading partitura.";
+    http.end();
+    return false;
+  }
+
+  String payload = http.getString();
+  http.end();
+
+  bool ok = applyPartituraJson(payload, message);
+  setWebApiConnected(ok);
+  return ok;
+}
+
+bool applyPartituraJson(const String &payload, String &message) {
+  JsonDocument downloaded;
+  DeserializationError error = deserializeJson(downloaded, payload);
+  if (error) {
+    message = String("JSON parse failed: ") + error.c_str();
+    return false;
+  }
+
+  const char *schemaVersion = downloaded["schemaVersion"] | "";
+  const char *defaultScene = downloaded["defaultScene"] | "";
+  if (strcmp(schemaVersion, "partitura.v1") != 0) {
+    message = "Unsupported schemaVersion.";
+    return false;
+  }
+  if (!downloaded["chains"].is<JsonArray>() || !downloaded["segments"].is<JsonArray>() ||
+      !downloaded["zones"].is<JsonArray>() || !downloaded["scenes"].is<JsonArray>() ||
+      strlen(defaultScene) == 0) {
+    message = "Partitura is missing required arrays or defaultScene.";
+    return false;
+  }
+
+  partitura.clear();
+  partitura.set(downloaded.as<JsonVariant>());
+  loadOutputPixelCounts();
+  sceneStartedAtMs = millis();
+  message = "Partitura downloaded and applied.";
+  return true;
+}
+
+bool isWebApiConnected() {
+  return webApiConnected;
+}
+
+void setWebApiConnected(bool connected) {
+  webApiConnected = connected;
+  digitalWrite(STATUS_LED_PIN, connected ? HIGH : LOW);
+}
+
+String partituraDownloadUrl() {
+  return trimTrailingSlash(deviceConfig.apiBaseUrl) + "/api/device/partituras/" + DEFAULT_PARTITURA_KEY;
+}
+
+String trimTrailingSlash(String value) {
+  value.trim();
+  while (value.endsWith("/")) value.remove(value.length() - 1);
+  return value;
+}
+
 void loadOutputPixelCounts() {
+  outputPixelCount[0] = 0;
+  outputPixelCount[1] = 0;
+  outputPixelCount[2] = 0;
+  outputPixelCount[3] = 0;
   for (JsonObject chain : partitura["chains"].as<JsonArray>()) {
     int output = chain["output"] | 0;
     int pixelCount = chain["pixelCount"] | 0;

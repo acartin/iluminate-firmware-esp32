@@ -9,10 +9,12 @@ Current scope:
 - ArduinoJson partitura parsing.
 - ESP32 local setup/runtime web.
 - NVS device configuration through `Preferences`.
+- HTTP download of the generated partitura from the configured Iluminate web/API.
 - Three logical outputs are always present.
 - Unused outputs are represented with `pixelCount: 0`.
 - First hardware target: one WS2812B strip, 100 LEDs, output 1 on GPIO 25.
 - Default scene: `calibration`.
+- Web/API status LED on GPIO 2.
 
 Local upload from Windows:
 
@@ -52,6 +54,7 @@ http://iluminate-esp32.local/ when mDNS is available
 Current menu:
 
 - `Setup / WiFi`
+- `Partitura`
 - status summary
 
 Saved config fields:
@@ -60,6 +63,25 @@ Saved config fields:
 - WiFi password
 - API base URL
 - controller key
+
+Partitura download:
+
+```text
+<api-base-url>/api/device/partituras/default_installation
+```
+
+The runtime downloads this generated JSON automatically after WiFi connects. It can also be triggered manually from:
+
+```text
+http://<esp32-lan-ip>/partitura
+```
+
+For this spike, the downloaded partitura is applied in RAM immediately. Persistence of the last known good downloaded partitura is a separate next step.
+
+Status LED:
+
+- GPIO 2 ON: the last web/API partitura download succeeded.
+- GPIO 2 OFF: web/API has not been verified or the last download failed.
 
 Button notes:
 
