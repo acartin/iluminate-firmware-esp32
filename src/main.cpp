@@ -199,6 +199,7 @@ bool downloadGeneratedPartitura(String &message) {
   String url = partituraDownloadUrl();
   Serial.print("Downloading partitura: ");
   Serial.println(url);
+  Serial.flush();
 
   HTTPClient http;
   http.setTimeout(7000);

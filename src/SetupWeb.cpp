@@ -104,7 +104,11 @@ void SetupWeb::handlePartitura() {
 
 void SetupWeb::handleDownloadPartitura() {
   String message;
+  Serial.println("Manual partitura download requested.");
   bool ok = downloadPartituraHandler && downloadPartituraHandler(message);
+  Serial.print(ok ? "Manual partitura download succeeded: " : "Manual partitura download failed: ");
+  Serial.println(message.length() ? message : "No detail available.");
+  Serial.flush();
   String body;
   body += ok ? "<section class='ok'>" : "<section class='error'>";
   body += "<h2>" + String(ok ? "Downloaded" : "Download failed") + "</h2>";
