@@ -22,3 +22,28 @@ pio device monitor
 
 Close the monitor before uploading again, because the COM port can only be opened by one process at a time.
 
+## Windows Helper Scripts
+
+From a VS Code terminal in this repository:
+
+```bat
+scripts\windows\pull.bat
+scripts\windows\build.bat
+scripts\windows\upload.bat
+scripts\windows\monitor.bat
+```
+
+For the normal update cycle:
+
+```bat
+scripts\windows\update-build-upload.bat
+```
+
+Recommended workflow:
+
+1. Codex changes firmware in the server clone.
+2. Codex commits and pushes to GitHub.
+3. The Windows flashing workstation runs `scripts\windows\pull.bat`.
+4. The Windows flashing workstation runs `scripts\windows\build.bat`.
+5. If build succeeds, run `scripts\windows\upload.bat`.
+6. Use `scripts\windows\monitor.bat` only when serial output is needed, and close it before uploading again.
