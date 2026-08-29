@@ -1,6 +1,10 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <FastLED.h>
+#include <WiFi.h>
+
+#include "DeviceConfig.h"
+#include "SetupWeb.h"
 
 #define DATA_PIN_OUTPUT_1 25
 #define DATA_PIN_OUTPUT_2 32
@@ -18,6 +22,8 @@ CRGB output3[MAX_LEDS_OUTPUT_3];
 StaticJsonDocument<24576> partitura;
 uint16_t outputPixelCount[4] = {0, 0, 0, 0};
 unsigned long sceneStartedAtMs = 0;
+DeviceConfig deviceConfig;
+SetupWeb setupWeb(deviceConfig);
 
 const char PARTITURA_JSON[] = R"json(
 {
@@ -90,6 +96,8 @@ CRGB colorForClip(JsonObject clip, uint32_t localTimeMs, float progress, int ind
 CRGB parseHexColor(const char *value);
 void clearOutputs();
 void setPixel(int output, int index, CRGB color);
+void startNetworking();
+bool connectConfiguredWifi(uint32_t timeoutMs);
 
 void setup() {
   Serial.begin(115200);
@@ -110,12 +118,48 @@ void setup() {
   sceneStartedAtMs = millis();
 
   Serial.println("ESP32 FastLED partitura runtime ready.");
+  startNetworking();
 }
 
 void loop() {
+  setupWeb.handleClient();
   renderDefaultScene();
   FastLED.show();
   delay(16);
+}
+
+void startNetworking() {
+  bool hasConfig = loadDeviceConfig(deviceConfig);
+  if (!hasConfig) {
+    Serial.println("No device config found. Starting setup portal.");
+    setupWeb.beginSetupPortal();
+    return;
+  }
+
+  Serial.print("Connecting WiFi SSID: ");
+  Serial.println(deviceConfig.wifiSsid);
+  if (connectConfiguredWifi(25000)) {
+    Serial.print("WiFi connected: ");
+    Serial.println(WiFi.localIP());
+    setupWeb.beginRuntimeWeb();
+    return;
+  }
+
+  Serial.println("WiFi connection failed. Starting setup portal.");
+  setupWeb.beginSetupPortal();
+}
+
+bool connectConfiguredWifi(uint32_t timeoutMs) {
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(deviceConfig.wifiSsid.c_str(), deviceConfig.wifiPassword.c_str());
+
+  uint32_t startedAt = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - startedAt < timeoutMs) {
+    delay(250);
+    Serial.print(".");
+  }
+  Serial.println();
+  return WiFi.status() == WL_CONNECTED;
 }
 
 void loadOutputPixelCounts() {
