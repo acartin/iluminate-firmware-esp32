@@ -39,6 +39,22 @@ For the normal update cycle:
 scripts\windows\update-build-upload.bat
 ```
 
+The same commands are available as VS Code tasks:
+
+```text
+Terminal -> Run Task...
+```
+
+Then choose:
+
+```text
+Firmware: Pull
+Firmware: Build
+Firmware: Upload
+Firmware: Monitor
+Firmware: Update Build Upload
+```
+
 Recommended workflow:
 
 1. Codex changes firmware in the server clone.

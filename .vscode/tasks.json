@@ -1,0 +1,65 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Firmware: Pull",
+      "type": "shell",
+      "command": "${workspaceFolder}\\scripts\\windows\\pull.bat",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Firmware: Build",
+      "type": "shell",
+      "command": "${workspaceFolder}\\scripts\\windows\\build.bat",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Firmware: Upload",
+      "type": "shell",
+      "command": "${workspaceFolder}\\scripts\\windows\\upload.bat",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    },
+    {
+      "label": "Firmware: Monitor",
+      "type": "shell",
+      "command": "${workspaceFolder}\\scripts\\windows\\monitor.bat",
+      "isBackground": true,
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": true
+      }
+    },
+    {
+      "label": "Firmware: Update Build Upload",
+      "type": "shell",
+      "command": "${workspaceFolder}\\scripts\\windows\\update-build-upload.bat",
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared",
+        "clear": true
+      }
+    }
+  ]
+}
