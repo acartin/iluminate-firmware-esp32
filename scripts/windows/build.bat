@@ -1,10 +1,12 @@
 @echo off
 setlocal
 cd /d "%~dp0..\.."
+call "%~dp0pio-env.bat"
+if errorlevel 1 goto fail
 
 echo.
 echo == Iluminate Firmware: build ==
-pio run
+"%PIO_CMD%" run
 if errorlevel 1 goto fail
 
 echo.

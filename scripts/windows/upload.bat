@@ -1,11 +1,13 @@
 @echo off
 setlocal
 cd /d "%~dp0..\.."
+call "%~dp0pio-env.bat"
+if errorlevel 1 goto fail
 
 echo.
 echo == Iluminate Firmware: upload ==
 echo Close any serial monitor before uploading.
-pio run -t upload
+"%PIO_CMD%" run -t upload
 if errorlevel 1 goto fail
 
 echo.

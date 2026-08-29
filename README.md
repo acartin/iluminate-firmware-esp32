@@ -55,6 +55,12 @@ Firmware: Monitor
 Firmware: Update Build Upload
 ```
 
+The Windows scripts first try `pio` from `PATH`; if VS Code runs them from a plain `cmd.exe`, they fall back to PlatformIO's default extension install path:
+
+```text
+%USERPROFILE%\.platformio\penv\Scripts\pio.exe
+```
+
 Recommended workflow:
 
 1. Codex changes firmware in the server clone.
