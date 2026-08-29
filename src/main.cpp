@@ -19,7 +19,7 @@ CRGB output1[MAX_LEDS_OUTPUT_1];
 CRGB output2[MAX_LEDS_OUTPUT_2];
 CRGB output3[MAX_LEDS_OUTPUT_3];
 
-StaticJsonDocument<24576> partitura;
+JsonDocument partitura;
 uint16_t outputPixelCount[4] = {0, 0, 0, 0};
 unsigned long sceneStartedAtMs = 0;
 DeviceConfig deviceConfig;
