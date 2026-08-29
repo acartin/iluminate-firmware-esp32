@@ -17,6 +17,7 @@
 #define BRIGHTNESS 96
 #define STATUS_LED_PIN 2
 #define DEFAULT_PARTITURA_KEY "default_installation"
+#define FIRMWARE_VERSION "0.1.0-download-debug"
 
 CRGB output1[MAX_LEDS_OUTPUT_1];
 CRGB output2[MAX_LEDS_OUTPUT_2];
@@ -26,7 +27,7 @@ JsonDocument partitura;
 uint16_t outputPixelCount[4] = {0, 0, 0, 0};
 unsigned long sceneStartedAtMs = 0;
 DeviceConfig deviceConfig;
-SetupWeb setupWeb(deviceConfig);
+SetupWeb setupWeb(deviceConfig, FIRMWARE_VERSION);
 bool webApiConnected = false;
 
 const char PARTITURA_JSON[] = R"json(
@@ -130,6 +131,9 @@ void setup() {
   sceneStartedAtMs = millis();
 
   Serial.println("ESP32 FastLED partitura runtime ready.");
+  Serial.print("Firmware version: ");
+  Serial.println(FIRMWARE_VERSION);
+  Serial.flush();
   setupWeb.onDownloadPartitura(downloadGeneratedPartitura);
   setupWeb.onWebConnectionStatus(isWebApiConnected);
   startNetworking();
@@ -137,8 +141,11 @@ void setup() {
 
 void loop() {
   setupWeb.handleClient();
+  yield();
   renderDefaultScene();
   FastLED.show();
+  setupWeb.handleClient();
+  yield();
   delay(16);
 }
 
@@ -163,6 +170,7 @@ void startNetworking() {
       Serial.print("Partitura download skipped/failed: ");
       Serial.println(downloadMessage);
     }
+    Serial.flush();
     return;
   }
 
@@ -206,6 +214,9 @@ bool downloadGeneratedPartitura(String &message) {
   http.begin(url);
   http.addHeader("X-Iluminate-Controller-Key", deviceConfig.controllerKey);
   int status = http.GET();
+  Serial.print("Partitura HTTP status: ");
+  Serial.println(status);
+  Serial.flush();
 
   if (status != HTTP_CODE_OK) {
     setWebApiConnected(false);
@@ -215,10 +226,15 @@ bool downloadGeneratedPartitura(String &message) {
   }
 
   String payload = http.getString();
+  Serial.print("Partitura payload bytes: ");
+  Serial.println(payload.length());
+  Serial.flush();
   http.end();
 
   bool ok = applyPartituraJson(payload, message);
   setWebApiConnected(ok);
+  Serial.println(message);
+  Serial.flush();
   return ok;
 }
 

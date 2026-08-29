@@ -9,8 +9,9 @@ const IPAddress SETUP_GATEWAY(192, 168, 4, 1);
 const IPAddress SETUP_SUBNET(255, 255, 255, 0);
 }
 
-SetupWeb::SetupWeb(DeviceConfig &deviceConfig)
+SetupWeb::SetupWeb(DeviceConfig &deviceConfig, const char *version)
     : config(deviceConfig),
+      firmwareVersion(version),
       server(80),
       setupPortalActive(false),
       downloadPartituraHandler(nullptr),
@@ -70,6 +71,8 @@ void SetupWeb::registerRoutes() {
 }
 
 void SetupWeb::handleHome() {
+  Serial.println("HTTP GET /");
+  Serial.flush();
   String body;
   body += "<div class='grid'>";
   body += "<a class='card' href='/setup/wifi'><strong>Setup / WiFi</strong><span>Configure WiFi, API URL and controller key.</span></a>";
@@ -83,17 +86,21 @@ void SetupWeb::handleHome() {
   body += "<dt>API</dt><dd>" + htmlEscape(config.apiBaseUrl.length() ? config.apiBaseUrl : "Not configured") + "</dd>";
   body += "<dt>Controller</dt><dd>" + htmlEscape(config.controllerKey.length() ? config.controllerKey : "Not configured") + "</dd>";
   body += "<dt>Web</dt><dd>" + String(webConnectionStatusHandler && webConnectionStatusHandler() ? "Connected" : "Not verified") + "</dd>";
+  body += "<dt>Firmware</dt><dd>" + htmlEscape(firmwareVersion) + "</dd>";
   body += "<dt>Heap</dt><dd>" + String(ESP.getFreeHeap()) + " bytes</dd>";
   body += "</dl></section>";
   server.send(200, "text/html", page("Iluminate Controller", body));
 }
 
 void SetupWeb::handlePartitura() {
+  Serial.println("HTTP GET /partitura");
+  Serial.flush();
   String body;
   body += "<section><h2>Download</h2><dl>";
   body += "<dt>API</dt><dd>" + htmlEscape(config.apiBaseUrl.length() ? config.apiBaseUrl : "Not configured") + "</dd>";
   body += "<dt>Controller</dt><dd>" + htmlEscape(config.controllerKey.length() ? config.controllerKey : "Not configured") + "</dd>";
   body += "<dt>Web</dt><dd>" + String(webConnectionStatusHandler && webConnectionStatusHandler() ? "Connected" : "Not verified") + "</dd>";
+  body += "<dt>Firmware</dt><dd>" + htmlEscape(firmwareVersion) + "</dd>";
   body += "</dl></section>";
   body += "<form method='post' action='/partitura/download'>";
   body += "<p>Download the generated partitura from the configured API and apply it immediately.</p>";

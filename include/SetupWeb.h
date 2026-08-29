@@ -10,7 +10,7 @@ typedef bool (*WebConnectionStatusHandler)();
 
 class SetupWeb {
 public:
-  explicit SetupWeb(DeviceConfig &config);
+  SetupWeb(DeviceConfig &config, const char *firmwareVersion);
 
   void onDownloadPartitura(DownloadPartituraHandler handler);
   void onWebConnectionStatus(WebConnectionStatusHandler handler);
@@ -21,6 +21,7 @@ public:
 
 private:
   DeviceConfig &config;
+  const char *firmwareVersion;
   WebServer server;
   bool setupPortalActive;
   DownloadPartituraHandler downloadPartituraHandler;
