@@ -12,12 +12,12 @@
 #define DATA_PIN_OUTPUT_3 26
 
 #define MAX_LEDS_OUTPUT_1 100
-#define MAX_LEDS_OUTPUT_2 1
-#define MAX_LEDS_OUTPUT_3 1
+#define MAX_LEDS_OUTPUT_2 200
+#define MAX_LEDS_OUTPUT_3 200
 #define BRIGHTNESS 96
 #define STATUS_LED_PIN 2
 #define DEFAULT_PARTITURA_KEY "default_installation"
-#define FIRMWARE_VERSION "0.1.0-download-debug"
+#define FIRMWARE_VERSION "0.1.0-spatial-map"
 
 CRGB output1[MAX_LEDS_OUTPUT_1];
 CRGB output2[MAX_LEDS_OUTPUT_2];
@@ -29,6 +29,17 @@ unsigned long sceneStartedAtMs = 0;
 DeviceConfig deviceConfig;
 SetupWeb setupWeb(deviceConfig, FIRMWARE_VERSION);
 bool webApiConnected = false;
+
+struct PixelContext {
+  int output;
+  int physicalIndex;
+  int effectIndex;
+  int total;
+  float x;
+  float y;
+  float normalizedX;
+  float normalizedY;
+};
 
 const char PARTITURA_JSON[] = R"json(
 {
@@ -97,8 +108,11 @@ JsonObject findSegment(const char *segmentId);
 int outputForChain(const char *chainId);
 void renderClipToZone(JsonObject clip, const char *zoneId, uint32_t localTimeMs, float progress);
 void renderClipToSegment(JsonObject clip, JsonObject segment, uint32_t localTimeMs, float progress, int baseIndex, int total);
-CRGB colorForClip(JsonObject clip, uint32_t localTimeMs, float progress, int index, int total);
+CRGB colorForClip(JsonObject clip, uint32_t localTimeMs, float progress, const PixelContext &pixel);
 CRGB parseHexColor(const char *value);
+CRGB mixColor(CRGB from, CRGB to, float amount);
+float pseudoNoise(float x, float y);
+bool zoneContainsSegment(JsonObject zone, const char *segmentId);
 void clearOutputs();
 void setPixel(int output, int index, CRGB color);
 void startNetworking();
@@ -124,9 +138,9 @@ void setup() {
   }
 
   loadOutputPixelCounts();
-  if (outputPixelCount[1] > 0) FastLED.addLeds<WS2812B, DATA_PIN_OUTPUT_1, GRB>(output1, min<uint16_t>(outputPixelCount[1], MAX_LEDS_OUTPUT_1));
-  if (outputPixelCount[2] > 0) FastLED.addLeds<WS2812B, DATA_PIN_OUTPUT_2, GRB>(output2, min<uint16_t>(outputPixelCount[2], MAX_LEDS_OUTPUT_2));
-  if (outputPixelCount[3] > 0) FastLED.addLeds<WS2812B, DATA_PIN_OUTPUT_3, GRB>(output3, min<uint16_t>(outputPixelCount[3], MAX_LEDS_OUTPUT_3));
+  FastLED.addLeds<WS2812B, DATA_PIN_OUTPUT_1, GRB>(output1, MAX_LEDS_OUTPUT_1);
+  FastLED.addLeds<WS2812B, DATA_PIN_OUTPUT_2, GRB>(output2, MAX_LEDS_OUTPUT_2);
+  FastLED.addLeds<WS2812B, DATA_PIN_OUTPUT_3, GRB>(output3, MAX_LEDS_OUTPUT_3);
   FastLED.setBrightness(BRIGHTNESS);
   sceneStartedAtMs = millis();
 
@@ -253,9 +267,9 @@ bool applyPartituraJson(const String &payload, String &message) {
     return false;
   }
   if (!downloaded["chains"].is<JsonArray>() || !downloaded["segments"].is<JsonArray>() ||
-      !downloaded["zones"].is<JsonArray>() || !downloaded["scenes"].is<JsonArray>() ||
+      !downloaded["pixelMap"].is<JsonArray>() || !downloaded["zones"].is<JsonArray>() || !downloaded["scenes"].is<JsonArray>() ||
       strlen(defaultScene) == 0) {
-    message = "Partitura is missing required arrays or defaultScene.";
+    message = "Partitura is missing required arrays, pixelMap or defaultScene.";
     return false;
   }
 
@@ -354,6 +368,62 @@ void renderClipToZone(JsonObject clip, const char *zoneId, uint32_t localTimeMs,
   JsonObject zone = findZone(zoneId);
   if (zone.isNull()) return;
 
+  JsonArray pixelMap = partitura["pixelMap"].as<JsonArray>();
+  if (!pixelMap.isNull() && pixelMap.size() > 0) {
+    int total = 0;
+    float minX = 0;
+    float maxX = 0;
+    float minY = 0;
+    float maxY = 0;
+    bool boundsInitialized = false;
+
+    for (JsonObject pixel : pixelMap) {
+      const char *segmentId = pixel["segmentId"] | "";
+      if (!zoneContainsSegment(zone, segmentId)) continue;
+      float x = pixel["x"] | 0.0f;
+      float y = pixel["y"] | 0.0f;
+      if (!boundsInitialized) {
+        minX = maxX = x;
+        minY = maxY = y;
+        boundsInitialized = true;
+      } else {
+        minX = min(minX, x);
+        maxX = max(maxX, x);
+        minY = min(minY, y);
+        maxY = max(maxY, y);
+      }
+      total++;
+    }
+
+    if (total <= 0) return;
+
+    float width = max(1.0f, maxX - minX);
+    float height = max(1.0f, maxY - minY);
+    int effectIndex = 0;
+
+    for (JsonObject pixel : pixelMap) {
+      const char *segmentId = pixel["segmentId"] | "";
+      if (!zoneContainsSegment(zone, segmentId)) continue;
+
+      float x = pixel["x"] | 0.0f;
+      float y = pixel["y"] | 0.0f;
+      PixelContext context = {
+        pixel["output"] | 0,
+        pixel["index"] | 0,
+        effectIndex,
+        total,
+        x,
+        y,
+        (x - minX) / width,
+        (y - minY) / height
+      };
+      CRGB color = colorForClip(clip, localTimeMs, progress, context);
+      setPixel(context.output, context.physicalIndex, color);
+      effectIndex++;
+    }
+    return;
+  }
+
   int total = 0;
   for (const char *segmentId : zone["segments"].as<JsonArray>()) {
     JsonObject segment = findSegment(segmentId);
@@ -376,14 +446,23 @@ void renderClipToSegment(JsonObject clip, JsonObject segment, uint32_t localTime
   bool reverse = segment["reverse"] | false;
 
   for (int offset = 0; offset < length; offset++) {
-    int effectIndex = baseIndex + offset;
     int physicalIndex = start + (reverse ? length - 1 - offset : offset);
-    CRGB color = colorForClip(clip, localTimeMs, progress, effectIndex, total);
+    PixelContext context = {
+      output,
+      physicalIndex,
+      baseIndex + offset,
+      total,
+      (float)(start + offset),
+      0.0f,
+      total > 1 ? (float)(baseIndex + offset) / (float)(total - 1) : 0.0f,
+      0.0f
+    };
+    CRGB color = colorForClip(clip, localTimeMs, progress, context);
     setPixel(output, physicalIndex, color);
   }
 }
 
-CRGB colorForClip(JsonObject clip, uint32_t localTimeMs, float progress, int index, int total) {
+CRGB colorForClip(JsonObject clip, uint32_t localTimeMs, float progress, const PixelContext &pixel) {
   const char *effect = clip["effect"] | "off";
   JsonObject params = clip["params"];
 
@@ -406,9 +485,9 @@ CRGB colorForClip(JsonObject clip, uint32_t localTimeMs, float progress, int ind
 
   if (strcmp(effect, "chase") == 0) {
     int width = max(1, params["width"] | 5);
-    int head = round(progress * max(0, total - 1));
+    int head = round(progress * max(0, pixel.total - 1));
     bool reverse = strcmp(params["direction"] | "forward", "reverse") == 0;
-    int directedIndex = reverse ? total - 1 - index : index;
+    int directedIndex = reverse ? pixel.total - 1 - pixel.effectIndex : pixel.effectIndex;
     bool active = directedIndex >= head && directedIndex < head + width;
     return active ? parseHexColor(params["color"] | "#FFFFFF") : parseHexColor(params["backgroundColor"] | "#000000");
   }
@@ -416,8 +495,28 @@ CRGB colorForClip(JsonObject clip, uint32_t localTimeMs, float progress, int ind
   if (strcmp(effect, "toggle") == 0) {
     uint32_t periodMs = max<uint32_t>(1, params["periodMs"] | 1000);
     float dutyCycle = constrain(params["dutyCycle"] | 0.5f, 0.0f, 1.0f);
+    int groupCount = max(1, params["groupCount"] | 1);
     float phase = (float)(localTimeMs % periodMs) / (float)periodMs;
+    if (groupCount > 1) {
+      int groupIndex = min(groupCount - 1, (int)floor(((float)pixel.effectIndex / (float)max(1, pixel.total)) * groupCount));
+      float start = (float)groupIndex / (float)groupCount;
+      float end = min(1.0f, start + dutyCycle);
+      return phase >= start && phase < end ? parseHexColor(params["onColor"] | "#FFFFFF") : parseHexColor(params["offColor"] | "#000000");
+    }
     return phase < dutyCycle ? parseHexColor(params["onColor"] | "#FFFFFF") : parseHexColor(params["offColor"] | "#000000");
+  }
+
+  if (strcmp(effect, "flame") == 0) {
+    CRGB base = parseHexColor(params["baseColor"] | "#FF3000");
+    CRGB tip = parseHexColor(params["tipColor"] | "#FFD060");
+    float cooling = constrain(params["cooling"] | 0.45f, 0.0f, 1.0f);
+    float speed = max(0.1f, params["speed"] | 1.0f);
+    float flicker = pseudoNoise(pixel.normalizedX * 5.7f + localTimeMs * 0.0013f * speed, pixel.normalizedY * 4.1f - localTimeMs * 0.0009f * speed);
+    float verticalHeat = 1.0f - pixel.normalizedY;
+    float heat = constrain(verticalHeat * (1.0f - cooling * 0.55f) + flicker * 0.42f, 0.0f, 1.0f);
+    CRGB color = mixColor(base, tip, heat);
+    color.nscale8((uint8_t)(heat * 255.0f));
+    return color;
   }
 
   return CRGB::Black;
@@ -433,6 +532,28 @@ CRGB parseHexColor(const char *value) {
   component[0] = value[5]; component[1] = value[6];
   uint8_t b = strtoul(component, nullptr, 16);
   return CRGB(r, g, b);
+}
+
+CRGB mixColor(CRGB from, CRGB to, float amount) {
+  amount = constrain(amount, 0.0f, 1.0f);
+  return CRGB(
+    (uint8_t)round(from.r + (to.r - from.r) * amount),
+    (uint8_t)round(from.g + (to.g - from.g) * amount),
+    (uint8_t)round(from.b + (to.b - from.b) * amount)
+  );
+}
+
+float pseudoNoise(float x, float y) {
+  float value = sin(x * 12.9898f + y * 78.233f) * 43758.5453f;
+  return value - floor(value);
+}
+
+bool zoneContainsSegment(JsonObject zone, const char *segmentId) {
+  if (!segmentId || strlen(segmentId) == 0) return false;
+  for (const char *candidate : zone["segments"].as<JsonArray>()) {
+    if (strcmp(candidate, segmentId) == 0) return true;
+  }
+  return false;
 }
 
 void clearOutputs() {

@@ -10,10 +10,11 @@ Current scope:
 - ESP32 local setup/runtime web.
 - NVS device configuration through `Preferences`.
 - HTTP download of the generated partitura from the configured Iluminate web/API.
+- Spatial `pixelMap` interpretation for strips, grids and surface-like zones.
 - Three logical outputs are always present.
 - Unused outputs are represented with `pixelCount: 0`.
-- First hardware target: one WS2812B strip, 100 LEDs, output 1 on GPIO 25.
-- Default scene: `calibration`.
+- First hardware target: WS2812B outputs on GPIO 25, 32 and 26.
+- Default downloaded scene: `normal`.
 - Web/API status LED on GPIO 2.
 
 Local upload from Windows:
@@ -77,6 +78,8 @@ http://<esp32-lan-ip>/partitura
 ```
 
 For this spike, the downloaded partitura is applied in RAM immediately. Persistence of the last known good downloaded partitura is a separate next step.
+
+The downloaded partitura must include `pixelMap`. A linear strip is represented as spatial pixels where `y = 0`; multi-row surfaces use the same pixel structure with different `x/y` coordinates.
 
 Status LED:
 
