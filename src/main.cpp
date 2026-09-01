@@ -165,7 +165,7 @@ void startNetworking() {
     setupWeb.beginRuntimeWeb();
     String downloadMessage;
     if (downloadGeneratedPartitura(downloadMessage)) {
-      Serial.println(downloadMessage);
+      Serial.println("Startup partitura download succeeded.");
     } else {
       Serial.print("Partitura download skipped/failed: ");
       Serial.println(downloadMessage);

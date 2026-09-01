@@ -62,6 +62,7 @@ bool SetupWeb::isSetupPortalActive() const {
 
 void SetupWeb::registerRoutes() {
   server.on("/", HTTP_GET, [this]() { handleHome(); });
+  server.on("/favicon.ico", HTTP_GET, [this]() { server.send(204); });
   server.on("/partitura", HTTP_GET, [this]() { handlePartitura(); });
   server.on("/partitura/download", HTTP_POST, [this]() { handleDownloadPartitura(); });
   server.on("/setup/wifi", HTTP_GET, [this]() { handleWifiForm(); });
