@@ -17,7 +17,7 @@
 #define BRIGHTNESS 96
 #define STATUS_LED_PIN 2
 #define DEFAULT_PARTITURA_KEY "default_installation"
-#define FIRMWARE_VERSION "0.1.0-spatial-map"
+#define FIRMWARE_VERSION "0.1.1-flame-field"
 
 CRGB output1[MAX_LEDS_OUTPUT_1];
 CRGB output2[MAX_LEDS_OUTPUT_2];
@@ -109,9 +109,14 @@ int outputForChain(const char *chainId);
 void renderClipToZone(JsonObject clip, const char *zoneId, uint32_t localTimeMs, float progress);
 void renderClipToSegment(JsonObject clip, JsonObject segment, uint32_t localTimeMs, float progress, int baseIndex, int total);
 CRGB colorForClip(JsonObject clip, uint32_t localTimeMs, float progress, const PixelContext &pixel);
+CRGB renderFlameColor(JsonObject params, uint32_t localTimeMs, const PixelContext &pixel);
 CRGB parseHexColor(const char *value);
 CRGB mixColor(CRGB from, CRGB to, float amount);
 float pseudoNoise(float x, float y);
+float fbm(float x, float y);
+float smoothstepf(float edge0, float edge1, float value);
+float hashNoise(float x, float y);
+float lerpf(float from, float to, float amount);
 bool zoneContainsSegment(JsonObject zone, const char *segmentId);
 void clearOutputs();
 void setPixel(int output, int index, CRGB color);
@@ -507,19 +512,43 @@ CRGB colorForClip(JsonObject clip, uint32_t localTimeMs, float progress, const P
   }
 
   if (strcmp(effect, "flame") == 0) {
-    CRGB base = parseHexColor(params["baseColor"] | "#FF3000");
-    CRGB tip = parseHexColor(params["tipColor"] | "#FFD060");
-    float cooling = constrain(params["cooling"] | 0.45f, 0.0f, 1.0f);
-    float speed = max(0.1f, params["speed"] | 1.0f);
-    float flicker = pseudoNoise(pixel.normalizedX * 5.7f + localTimeMs * 0.0013f * speed, pixel.normalizedY * 4.1f - localTimeMs * 0.0009f * speed);
-    float verticalHeat = 1.0f - pixel.normalizedY;
-    float heat = constrain(verticalHeat * (1.0f - cooling * 0.55f) + flicker * 0.42f, 0.0f, 1.0f);
-    CRGB color = mixColor(base, tip, heat);
-    color.nscale8((uint8_t)(heat * 255.0f));
-    return color;
+    return renderFlameColor(params, localTimeMs, pixel);
   }
 
   return CRGB::Black;
+}
+
+CRGB renderFlameColor(JsonObject params, uint32_t localTimeMs, const PixelContext &pixel) {
+  CRGB ember = CRGB(24, 0, 0);
+  CRGB base = parseHexColor(params["baseColor"] | "#D01800");
+  CRGB tip = parseHexColor(params["tipColor"] | "#FFD36A");
+  CRGB white = CRGB(255, 244, 208);
+  float cooling = constrain(params["cooling"] | 0.38f, 0.0f, 1.0f);
+  float speed = max(0.001f, params["speed"] | 1.15f);
+  float turbulence = constrain(params["turbulence"] | 0.72f, 0.0f, 1.0f);
+  float height = constrain(params["height"] | 0.78f, 0.1f, 1.0f);
+  float time = (float)localTimeMs * 0.001f * speed;
+  float x = pixel.normalizedX;
+  float yFromBottom = 1.0f - pixel.normalizedY;
+  float sway = (fbm(x * 1.7f + time * 0.55f, yFromBottom * 1.4f - time * 0.18f) - 0.5f) * turbulence * 0.42f;
+  float warpedX = x + sway;
+  float rolling = fbm(warpedX * 4.8f, yFromBottom * 6.2f - time * 1.55f);
+  float fine = fbm(warpedX * 14.0f + time * 0.4f, yFromBottom * 11.0f - time * 2.8f);
+  float tongues = smoothstepf(0.48f, 0.88f, rolling) * (1.0f - smoothstepf(height * 0.72f, 1.0f, yFromBottom));
+  float core = smoothstepf(0.25f, 0.95f, 1.0f - fabsf(warpedX - 0.5f) * 1.35f);
+  float baseGlow = smoothstepf(1.0f, 0.1f, yFromBottom);
+  float verticalFade = 1.0f - smoothstepf(height * 0.55f, 1.0f, yFromBottom);
+  float heat = constrain((baseGlow * 0.72f + tongues * 0.78f + fine * 0.18f + core * 0.18f) * verticalFade - cooling * yFromBottom * 0.38f, 0.0f, 1.0f);
+  CRGB color;
+  if (heat < 0.5f) {
+    color = mixColor(ember, base, heat / 0.5f);
+  } else if (heat < 0.86f) {
+    color = mixColor(base, tip, (heat - 0.5f) / 0.36f);
+  } else {
+    color = mixColor(tip, white, (heat - 0.86f) / 0.14f);
+  }
+  color.nscale8((uint8_t)(smoothstepf(0.04f, 1.0f, heat) * 255.0f));
+  return color;
 }
 
 CRGB parseHexColor(const char *value) {
@@ -544,8 +573,37 @@ CRGB mixColor(CRGB from, CRGB to, float amount) {
 }
 
 float pseudoNoise(float x, float y) {
-  float value = sin(x * 12.9898f + y * 78.233f) * 43758.5453f;
+  float xi = floor(x);
+  float yi = floor(y);
+  float xf = x - xi;
+  float yf = y - yi;
+  float u = xf * xf * (3.0f - 2.0f * xf);
+  float v = yf * yf * (3.0f - 2.0f * yf);
+  float a = hashNoise(xi, yi);
+  float b = hashNoise(xi + 1.0f, yi);
+  float c = hashNoise(xi, yi + 1.0f);
+  float d = hashNoise(xi + 1.0f, yi + 1.0f);
+  return lerpf(lerpf(a, b, u), lerpf(c, d, u), v);
+}
+
+float fbm(float x, float y) {
+  return pseudoNoise(x, y) * 0.5f
+    + pseudoNoise(x * 2.03f + 11.7f, y * 2.01f - 6.3f) * 0.3f
+    + pseudoNoise(x * 4.01f - 3.1f, y * 4.07f + 19.8f) * 0.2f;
+}
+
+float smoothstepf(float edge0, float edge1, float value) {
+  float t = constrain((value - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+  return t * t * (3.0f - 2.0f * t);
+}
+
+float hashNoise(float x, float y) {
+  float value = sin(x * 127.1f + y * 311.7f) * 43758.5453f;
   return value - floor(value);
+}
+
+float lerpf(float from, float to, float amount) {
+  return from + (to - from) * amount;
 }
 
 bool zoneContainsSegment(JsonObject zone, const char *segmentId) {
